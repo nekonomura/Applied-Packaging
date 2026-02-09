@@ -1,6 +1,7 @@
 package io.github.nekonomura.applied_packaging;
 
 import com.mojang.logging.LogUtils;
+import com.simibubi.create.foundation.data.CreateRegistrate;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.food.FoodProperties;
@@ -34,11 +35,22 @@ public class AppliedPackaging {
 
     public static final String MODID = "applied_packaging";
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static CreateRegistrate registrate;
+
     @SuppressWarnings("removal")
     public AppliedPackaging() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
         MinecraftForge.EVENT_BUS.register(this);
+        registrate = CreateRegistrate.create(MODID).registerEventListeners(modEventBus);
+
+        Registration.register();
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Config.SPEC);
     }
 
+    public static CreateRegistrate getRegistrate() {
+        return registrate;
+    }
+    public static Logger getLogger() {
+        return LOGGER;
+    }
 }
