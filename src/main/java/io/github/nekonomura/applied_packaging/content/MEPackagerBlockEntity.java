@@ -1,28 +1,25 @@
 package io.github.nekonomura.applied_packaging.content;
 
-import appeng.api.networking.GridFlags;
-import appeng.api.networking.IGridNode;
-import appeng.api.networking.IGridNodeListener;
-import appeng.api.networking.IManagedGridNode;
-import appeng.helpers.InterfaceLogic;
-import appeng.helpers.InterfaceLogicHost;
-import appeng.me.ManagedGridNode;
-import appeng.me.helpers.BlockEntityNodeListener;
+import appeng.api.config.Actionable;
+import appeng.api.networking.*;
+import appeng.api.networking.security.IActionHost;
+import appeng.api.networking.security.IActionSource;
+import appeng.api.stacks.AEItemKey;
+import appeng.api.stacks.AEKey;
+import appeng.api.stacks.KeyCounter;
+import appeng.api.storage.MEStorage;
+import appeng.api.util.AECableType;
 import appeng.me.helpers.IGridConnectedBlockEntity;
-import appeng.parts.AEBasePart;
-import appeng.parts.misc.InterfacePart;
-import com.simibubi.create.AllBlocks;
+import appeng.me.helpers.MachineSource;
+import com.simibubi.create.compat.computercraft.events.PackageEvent;
 import com.simibubi.create.content.logistics.BigItemStack;
 import com.simibubi.create.content.logistics.box.PackageItem;
-import com.simibubi.create.content.logistics.packager.PackagerBlock;
-import com.simibubi.create.content.logistics.packager.PackagerBlockEntity;
-import com.simibubi.create.content.logistics.packager.PackagerItemHandler;
-import com.simibubi.create.content.logistics.packager.PackagingRequest;
-import com.simibubi.create.content.logistics.packagerLink.PackagerLinkBlock;
+import com.simibubi.create.content.logistics.packager.*;
 import com.simibubi.create.content.logistics.packagerLink.PackagerLinkBlockEntity;
 import com.simibubi.create.content.logistics.stockTicker.PackageOrderWithCrafts;
-import com.simibubi.create.foundation.advancement.AllAdvancements;
+import io.github.nekonomura.applied_packaging.Registration;
 import io.github.nekonomura.applied_packaging.mixin.PackagerBlockEntityAccessor;
+import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.item.ItemStack;
@@ -32,10 +29,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.ItemStackHandler;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import appeng.api.networking.GridFlags;
 
-
+import javax.annotation.Nullable;
 import java.util.List;
 
 import static io.github.nekonomura.applied_packaging.AppliedPackaging.getLogger;
@@ -43,18 +39,53 @@ import static io.github.nekonomura.applied_packaging.AppliedPackaging.getLogger;
 public class MEPackagerBlockEntity extends PackagerBlockEntity
         // AE2本体のクラスの場合，リスナーはコンポジットされているようですが一旦は直接実装する．
         implements IGridNodeListener<MEPackagerBlockEntity>,
-        IGridConnectedBlockEntity
+        IGridConnectedBlockEntity,
+        IInWorldGridNodeHost,
+        IActionHost
         //MEPackagerLogicHost
 {
-    private final ManagedGridNode mainNode;
+    private final IManagedGridNode mainNode;
 
     // 梱包用のバッファ
     private ItemStackHandler internalBuffer = new ItemStackHandler(9);
     // コンストラクタ．
     public MEPackagerBlockEntity(BlockEntityType<?> typeIn, BlockPos pos, BlockState state) {
         super(typeIn, pos, state);
-        this.mainNode = new ManagedGridNode(this, this);
+        this.mainNode = this.createMainNode()
+                .setVisualRepresentation(this.getItem())
+                .setInWorldNode(true)
+                .setTagName("Packager")
+                .setFlags(GridFlags.REQUIRE_CHANNEL);
         getLogger().info("MEPackagerBlockEntity created at {}", pos);
+    }
+
+    private ItemStack getItem() {
+        return Registration.MEPACKAGER.asStack();
+    }
+    @Override
+    public @Nullable IGridNode getGridNode(Direction dir) {
+        BlockState state = this.getBlockState();
+        if (state.hasProperty(PackagerBlock.FACING)) {
+            if (dir == state.getValue(PackagerBlock.FACING).getOpposite()) {
+                return this.mainNode.getNode();
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public AECableType getCableConnectionType(Direction dir) {
+        BlockState state = this.getBlockState();
+        if (state.hasProperty(MEPackagerBlock.FACING)) {
+            if (dir == state.getValue(MEPackagerBlock.FACING).getOpposite()) {
+                return AECableType.SMART;
+            }
+        }
+        return AECableType.NONE;
+    }
+
+    protected IManagedGridNode createMainNode() {
+        return GridHelper.createManagedNode(this, this);
     }
 
     // メインノードのゲッター．
@@ -74,139 +105,239 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
         this.setChanged();
     }
 
+    //ここからcreate要素強め．
 
     // 送信
     @Override
     public void attemptToSend(List<PackagingRequest> queuedRequests) {
-        if (queuedRequests != null || this.heldBox.isEmpty() && this.animationTicks == 0 && this.buttonCooldown <= 0) {
-            IItemHandler targetInv = (IItemHandler)this.targetInventory.getInventory();
-            if (targetInv != null && !(targetInv instanceof PackagerItemHandler)) {
-                boolean anyItemPresent = false;
-                ItemStackHandler extractedItems = new ItemStackHandler(9);
-                ItemStack extractedPackageItem = ItemStack.EMPTY;
-                PackagingRequest nextRequest = null;
-                String fixedAddress = null;
-                int fixedOrderId = 0;
-                int linkIndexInOrder = 0;
-                boolean finalLinkInOrder = false;
-                int packageIndexAtLink = 0;
-                boolean finalPackageAtLink = false;
-                PackageOrderWithCrafts orderContext = null;
-                boolean requestQueue = queuedRequests != null;
-                if (requestQueue && !queuedRequests.isEmpty()) {
-                    nextRequest = (PackagingRequest)queuedRequests.get(0);
-                    fixedAddress = nextRequest.address();
-                    fixedOrderId = nextRequest.orderId();
-                    linkIndexInOrder = nextRequest.linkIndex();
-                    finalLinkInOrder = nextRequest.finalLink().booleanValue();
-                    packageIndexAtLink = nextRequest.packageCounter().getAndIncrement();
+        // 1. 基本チェック (箱を持っている、アニメーション中、ボタンクールダウン中は処理しない)
+        if (queuedRequests == null && (!this.heldBox.isEmpty() || this.animationTicks != 0 || this.buttonCooldown > 0)) {
+            return;
+        }
+
+        // AE2ネットワークが利用可能かチェック
+        if (this.mainNode == null || !this.mainNode.isReady()) {
+            return;
+        }
+        IGrid grid = this.mainNode.getGrid();
+        MEStorage meStorage = grid.getStorageService().getInventory();
+        IActionSource actionSource = new MachineSource(this); // 操作主体を定義
+        boolean anyItemPresent = false;
+        ItemStackHandler extractedItems = new ItemStackHandler(PackageItem.SLOTS); // 箱の中身 (9スロット)
+        ItemStack extractedPackageItem = ItemStack.EMPTY; // Bulky Item等の既存パッケージ
+        PackagingRequest nextRequest = null;
+        String fixedAddress = null;
+        int fixedOrderId = 0;
+        int linkIndexInOrder = 0;
+        boolean finalLinkInOrder = false;
+        int packageIndexAtLink = 0;
+        boolean finalPackageAtLink = false;
+        PackageOrderWithCrafts orderContext = null;
+        // リクエストキューモードの初期化
+        boolean requestQueue = queuedRequests != null;
+        if (requestQueue && !queuedRequests.isEmpty()) {
+            nextRequest = queuedRequests.get(0);
+            fixedAddress = nextRequest.address();
+            fixedOrderId = nextRequest.orderId();
+            linkIndexInOrder = nextRequest.linkIndex();
+            finalLinkInOrder = nextRequest.finalLink().booleanValue();
+            packageIndexAtLink = nextRequest.packageCounter().getAndIncrement();
+            orderContext = nextRequest.context();
+        } else {
+            // 手動発送モード (AE2連携版では一旦未実装とするか、特定のインポートバス挙動にするか要検討)
+            // ここではリクエストがない場合は何もしない実装とします
+            return;
+        }
+        Outer:
+        for (int i = 0; i < PackageItem.SLOTS; i++) {
+            boolean continuePacking = true;
+
+            while (continuePacking) {
+                continuePacking = false;
+                // AE2から抽出を試みる
+                // リクエストされたアイテムのキーを取得
+                AEKey key = AEItemKey.of(nextRequest.item());
+                if (key == null) break; // 無効なアイテム
+
+                // 抽出可能数を計算 (最大64個 または リクエスト残り数)
+                long initialCount = Math.min(64, nextRequest.getCount());
+
+                // AE2から実際に抽出 (MODULATE = 実行)
+                long extractedCount = meStorage.extract(key, initialCount, Actionable.MODULATE, actionSource);
+
+                if (extractedCount <= 0) {
+                    // 在庫がない場合
+                    // TODO: ここで自動クラフト(Auto-Crafting)を発行するロジックを追加可能
+                    // 今回は「在庫切れ」としてスキップ
+                    break;
+                }
+
+                ItemStack extracted = ((AEItemKey) key).toStack((int) extractedCount);
+                // Bulky Item (箱に入らないもの) の判定
+                boolean bulky = !extracted.getItem().canFitInsideContainerItems();
+                if (bulky && anyItemPresent) {
+                    // すでに箱に物が入っているなら、このBulky Itemは次の箱にするため戻す
+                    meStorage.insert(key, extractedCount, Actionable.MODULATE, actionSource);
+                    continue;
+                }
+                anyItemPresent = true;
+
+                // 一時インベントリ(extractedItems)に詰める
+                int leftovers = ItemHandlerHelper.insertItemStacked(extractedItems, extracted.copy(), false).getCount();
+                int transferred = extracted.getCount() - leftovers;
+
+                // 余りが出た場合 (理論上起こりにくいが念のため)、AE2に戻す
+                if (leftovers > 0) {
+                    meStorage.insert(key, leftovers, Actionable.MODULATE, actionSource);
+                }
+
+                if (extracted.getItem() instanceof PackageItem) {
+                    extractedPackageItem = extracted;
+                }
+
+                // リクエストの更新
+                nextRequest.subtract(transferred);
+
+                // まだこのリクエストが完了していないなら、ループ継続 (同じアイテムをさらに詰める)
+                if (!nextRequest.isEmpty()) {
+                    if (bulky) break Outer;
+                    continue;
+                }
+                // --- リクエスト完了 & 次のリクエストへ (Defragmentation) ---
+                finalPackageAtLink = true;
+                queuedRequests.remove(0);
+
+                if (queuedRequests.isEmpty()) {
+                    break Outer;
+                }
+
+                int previousCount = nextRequest.packageCounter().intValue();
+                nextRequest = queuedRequests.get(0);
+
+                // 次の注文が別の宛先なら、ここで箱を閉じる
+                if (!fixedAddress.equals(nextRequest.address()) || fixedOrderId != nextRequest.orderId()) {
+                    break Outer;
+                }
+
+                // 同じ宛先なら、同じ箱に詰め続ける
+                nextRequest.packageCounter().setValue(previousCount);
+                finalPackageAtLink = false;
+                continuePacking = true;
+                if (nextRequest.context() != null) {
                     orderContext = nextRequest.context();
                 }
 
-                label151:
-                for(int i = 0; i < 9; ++i) {
-                    boolean continuePacking = true;
-
-                    while(continuePacking) {
-                        continuePacking = false;
-
-                        for(int slot = 0; slot < targetInv.getSlots(); ++slot) {
-                            int initialCount = requestQueue ? Math.min(64, nextRequest.getCount()) : 64;
-                            ItemStack extracted = targetInv.extractItem(slot, initialCount, true);
-                            if (!extracted.isEmpty() && (!requestQueue || ItemHandlerHelper.canItemStacksStack(extracted, nextRequest.item()))) {
-                                boolean bulky = !extracted.getItem().canFitInsideContainerItems();
-                                if (!bulky || !anyItemPresent) {
-                                    anyItemPresent = true;
-                                    int leftovers = ItemHandlerHelper.insertItemStacked(extractedItems, extracted.copy(), false).getCount();
-                                    int transferred = extracted.getCount() - leftovers;
-                                    targetInv.extractItem(slot, transferred, false);
-                                    if (extracted.getItem() instanceof PackageItem) {
-                                        extractedPackageItem = extracted;
-                                    }
-
-                                    if (!requestQueue) {
-                                        if (bulky) {
-                                            break label151;
-                                        }
-                                    } else {
-                                        nextRequest.subtract(transferred);
-                                        if (nextRequest.isEmpty()) {
-                                            finalPackageAtLink = true;
-                                            queuedRequests.remove(0);
-                                            if (queuedRequests.isEmpty()) {
-                                                break label151;
-                                            }
-
-                                            int previousCount = nextRequest.packageCounter().intValue();
-                                            nextRequest = (PackagingRequest)queuedRequests.get(0);
-                                            if (!fixedAddress.equals(nextRequest.address()) || fixedOrderId != nextRequest.orderId()) {
-                                                break label151;
-                                            }
-
-                                            nextRequest.packageCounter().setValue(previousCount);
-                                            finalPackageAtLink = false;
-                                            continuePacking = true;
-                                            if (nextRequest.context() != null) {
-                                                orderContext = nextRequest.context();
-                                            }
-
-                                            if (bulky) {
-                                                break label151;
-                                            }
-                                            break;
-                                        }
-
-                                        if (bulky) {
-                                            break label151;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (!anyItemPresent) {
-                    if (nextRequest != null) {
-                        queuedRequests.remove(0);
-                    }
-
-                } else {
-                    ItemStack createdBox = extractedPackageItem.isEmpty() ? PackageItem.containing(extractedItems) : extractedPackageItem.copy();
-                    PackageItem.clearAddress(createdBox);
-                    if (fixedAddress != null) {
-                        PackageItem.addAddress(createdBox, fixedAddress);
-                    }
-
-                    if (requestQueue) {
-                        PackageItem.setOrder(createdBox, fixedOrderId, linkIndexInOrder, finalLinkInOrder, packageIndexAtLink, finalPackageAtLink, orderContext);
-                    }
-
-                    if (!requestQueue && !this.signBasedAddress.isBlank()) {
-                        PackageItem.addAddress(createdBox, this.signBasedAddress);
-                    }
-
-                    BlockPos linkPos = ((PackagerBlockEntityAccessor) this).callGetLinkPos();
-                    if (extractedPackageItem.isEmpty() && linkPos != null) {
-                        BlockEntity var27 = this.level.getBlockEntity(linkPos);
-                        if (var27 instanceof PackagerLinkBlockEntity) {
-                            PackagerLinkBlockEntity plbe = (PackagerLinkBlockEntity)var27;
-                            plbe.behaviour.deductFromAccurateSummary(extractedItems);
-                        }
-                    }
-
-                    if (this.heldBox.isEmpty() && this.animationTicks == 0) {
-                        this.heldBox = createdBox;
-                        this.animationInward = false;
-                        this.animationTicks = 20;
-                        this.triggerStockCheck();
-                        this.notifyUpdate();
-                    } else {
-                        this.queuedExitingPackages.add(new BigItemStack(createdBox, 1));
-                    }
-                }
+                if (bulky) break Outer;
+                break;
             }
+        }
+        // --- 梱包ループ終了 ---
+
+        // 何も詰められなかった場合
+        if (!anyItemPresent) {
+            // リクエストが進まなかった場合、キューから削除すべきか？
+            // 元コードでは remove(0) しているが、AE2在庫切れの場合は「待機」させるべきかもしれない。
+            // ここでは元コードの挙動に合わせて削除しておく (無限ループ防止)
+            if (nextRequest != null && nextRequest.isEmpty()) {
+                queuedRequests.remove(0);
+            }
+            return;
+        }
+
+        // --- 箱(PackageItem)の生成 ---
+        ItemStack createdBox = extractedPackageItem.isEmpty() ?
+                PackageItem.containing(extractedItems) : extractedPackageItem.copy();
+
+        // イベント発火 (ComputerCraft等用)
+        computerBehaviour.prepareComputerEvent(new PackageEvent(createdBox, "package_created"));
+
+        PackageItem.clearAddress(createdBox);
+        if (fixedAddress != null) {
+            PackageItem.addAddress(createdBox, fixedAddress);
+        }
+
+        // 注文情報の書き込み
+        PackageItem.setOrder(createdBox, fixedOrderId, linkIndexInOrder, finalLinkInOrder, packageIndexAtLink, finalPackageAtLink, orderContext);
+
+        // --- 重要: Create論理在庫の引き落とし ---
+        // Mixinを使ってリンク位置を取得し、論理在庫を減らす
+        BlockPos linkPos = ((PackagerBlockEntityAccessor) this).callGetLinkPos();
+        if (extractedPackageItem.isEmpty() && linkPos != null) {
+            BlockEntity be = this.level.getBlockEntity(linkPos);
+            if (be instanceof PackagerLinkBlockEntity plbe) {
+                plbe.behaviour.deductFromAccurateSummary(extractedItems);
+            }
+        }
+        // --- 搬出処理 ---
+        if (this.heldBox.isEmpty() && this.animationTicks == 0) {
+            this.heldBox = createdBox;
+            this.animationInward = false; // 搬出アニメーション
+            this.animationTicks = CYCLE;
+            this.triggerStockCheck(); // 在庫再チェック
+            this.notifyUpdate();
+        } else {
+            this.queuedExitingPackages.add(new BigItemStack(createdBox, 1));
         }
     }
 
+    @Override
+    public InventorySummary getAvailableItems() {
+        // 1. ノードとグリッドの安全性チェック
+        if (this.mainNode == null || !this.mainNode.isReady()) {
+            return InventorySummary.EMPTY;
+        }
+
+        IGrid grid = this.mainNode.getGrid();
+        MEStorage meStorage = grid.getStorageService().getInventory();
+
+        // 2. 新しいサマリを作成
+        InventorySummary summary = new InventorySummary();
+
+        // 3. AE2の全在庫を取得 (重い処理なので注意)
+        KeyCounter counter = meStorage.getAvailableStacks();
+
+        // 4. 全アイテムをループしてCreate形式に変換
+        for (Object2LongMap.Entry<AEKey> entry : counter) {
+            AEKey key = entry.getKey();
+            long amount = entry.getLongValue();
+
+            // アイテムのみを対象とする（流体などは除外）
+            if (key instanceof AEItemKey itemKey) {
+                // AE2の量は long だが、CreateのInventorySummaryは int を要求する
+                // 21億個を超える場合は、Integer.MAX_VALUE に丸める
+                int createAmount = (int) Math.min(amount, Integer.MAX_VALUE);
+
+                // アイテムスタックの生成 (個数は1で作成し、addメソッドで総数を指定)
+                ItemStack stack = itemKey.toStack(1);
+
+                // サマリに追加
+                summary.add(stack, createAmount);
+            }
+        }
+
+        // 5. 結果を返す
+        // 親クラスのキャッシュ機構 (availableItems) を更新
+        // (PackagerBlockEntityのフィールドはprivateなどで直接アクセスしづらいため、
+        //  ここで返すだけでStockTickerが受け取ってくれる設計になっています)
+        return summary;
+    }
+
+    @Override
+    public void initialize() {
+        super.initialize();
+        // ブロックがロードされたり、設置された最初のTickに呼ばれます
+        if (this.mainNode != null) {
+            this.mainNode.create(this.level, this.worldPosition);
+        }
+    }
+
+    @Override
+    public void invalidate() {
+        super.invalidate();
+        // ブロックが破壊されたり、チャンクがアンロードされた時に呼ばれます
+        // SmartBlockEntity.setRemoved() の内部から呼び出されるフックです
+        if (this.mainNode != null) {
+            this.mainNode.destroy();
+        }
+    }
 }
