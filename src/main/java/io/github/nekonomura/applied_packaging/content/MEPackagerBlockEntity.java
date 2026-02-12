@@ -11,14 +11,17 @@ import appeng.api.storage.MEStorage;
 import appeng.api.util.AECableType;
 import appeng.me.helpers.IGridConnectedBlockEntity;
 import appeng.me.helpers.MachineSource;
+import com.simibubi.create.api.packager.unpacking.UnpackingHandler;
 import com.simibubi.create.compat.computercraft.events.PackageEvent;
 import com.simibubi.create.content.logistics.BigItemStack;
 import com.simibubi.create.content.logistics.box.PackageItem;
 import com.simibubi.create.content.logistics.packager.*;
 import com.simibubi.create.content.logistics.packagerLink.PackagerLinkBlockEntity;
 import com.simibubi.create.content.logistics.stockTicker.PackageOrderWithCrafts;
+import com.simibubi.create.foundation.item.ItemHelper;
 import io.github.nekonomura.applied_packaging.Registration;
 import io.github.nekonomura.applied_packaging.mixin.PackagerBlockEntityAccessor;
+import io.github.nekonomura.applied_packaging.util.Annotations;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -33,6 +36,7 @@ import appeng.api.networking.GridFlags;
 
 import javax.annotation.Nullable;
 import java.util.List;
+import java.util.Objects;
 
 import static io.github.nekonomura.applied_packaging.AppliedPackaging.getLogger;
 
@@ -108,6 +112,7 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
     //ここからcreate要素強め．
 
     // 送信
+    @Annotations.AICode(checked = false)
     @Override
     public void attemptToSend(List<PackagingRequest> queuedRequests) {
         // 1. 基本チェック (箱を持っている、アニメーション中、ボタンクールダウン中は処理しない)
@@ -156,7 +161,7 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
                 continuePacking = false;
                 // AE2から抽出を試みる
                 // リクエストされたアイテムのキーを取得
-                AEKey key = AEItemKey.of(nextRequest.item());
+                AEItemKey key = AEItemKey.of(nextRequest.item());
                 if (key == null) break; // 無効なアイテム
 
                 // 抽出可能数を計算 (最大64個 または リクエスト残り数)
@@ -172,7 +177,7 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
                     break;
                 }
 
-                ItemStack extracted = ((AEItemKey) key).toStack((int) extractedCount);
+                ItemStack extracted = key.toStack((int) extractedCount);
                 // Bulky Item (箱に入らないもの) の判定
                 boolean bulky = !extracted.getItem().canFitInsideContainerItems();
                 if (bulky && anyItemPresent) {
@@ -280,6 +285,7 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
         }
     }
 
+    @Annotations.AICode(checked = false)
     @Override
     public InventorySummary getAvailableItems() {
         // 1. ノードとグリッドの安全性チェック
@@ -323,9 +329,34 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
     }
 
     @Override
+    public boolean unwrapBox(ItemStack box, boolean simulate) {
+        // 動作中だったら開封失敗
+        if (this.animationTicks > 0)return false;
+        Objects.requireNonNull(this.level);
+        ItemStackHandler contents = PackageItem.getContents(box);
+        List<ItemStack> items = ItemHelper.getNonEmptyStacks(contents);
+        // 小包を開封して中身が空だったら開封済みを通知
+        if (items.isEmpty()) return true;
+        PackageOrderWithCrafts orderContext = PackageItem.getOrderContext(box);
+        Direction facing = (Direction)this.getBlockState().getOptionalValue(PackagerBlock.FACING).orElse(Direction.UP);
+        BlockPos target = this.worldPosition;
+        BlockState targetState = this.level.getBlockState(target);
+        UnpackingHandler toUse = new UnpackingHandlerAE2();
+        boolean unpacked = toUse.unpack(this.level, target, targetState, facing, items, orderContext, simulate);
+        if (unpacked && !simulate) {
+            this.computerBehaviour.prepareComputerEvent(new PackageEvent(box, "package_received"));
+            this.previouslyUnwrapped = box;
+            this.animationInward = true;
+            this.animationTicks = 20;
+            this.notifyUpdate();
+        }
+
+        return unpacked;
+    }
+
+    @Override
     public void initialize() {
         super.initialize();
-        // ブロックがロードされたり、設置された最初のTickに呼ばれます
         if (this.mainNode != null) {
             this.mainNode.create(this.level, this.worldPosition);
         }
@@ -334,8 +365,6 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
     @Override
     public void invalidate() {
         super.invalidate();
-        // ブロックが破壊されたり、チャンクがアンロードされた時に呼ばれます
-        // SmartBlockEntity.setRemoved() の内部から呼び出されるフックです
         if (this.mainNode != null) {
             this.mainNode.destroy();
         }
