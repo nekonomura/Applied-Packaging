@@ -1,6 +1,6 @@
 このmodはLGPL 3.0の元でライセンスされます．
 
-このmodの一部のコードはCreateやApplied-Energistics-2からのものです．
+このmodの一部のコードはCreateからのものです．
 
 CreateはMITライセンスの元でライセンスされています．
 
