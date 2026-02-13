@@ -51,8 +51,6 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
 {
     private final IManagedGridNode mainNode;
 
-    // 梱包用のバッファ
-    private ItemStackHandler internalBuffer = new ItemStackHandler(9);
     // コンストラクタ．
     public MEPackagerBlockEntity(BlockEntityType<?> typeIn, BlockPos pos, BlockState state) {
         super(typeIn, pos, state);
