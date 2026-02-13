@@ -25,8 +25,11 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-@SuppressWarnings("experimental")
-public class UnpackingHandlerAE2 implements UnpackingHandler {
+@SuppressWarnings("UnstableApiUsage")
+public enum UnpackingHandlerAE2 implements UnpackingHandler {
+    INSTANCE;
+    private UnpackingHandlerAE2() {
+    }
     // level, pos(Node), state, side, items, orderContext, simulate
     @Override
     public boolean unpack(Level level, BlockPos pos, BlockState state, Direction side, List<ItemStack> items, @Nullable PackageOrderWithCrafts orderContext, boolean simulate) {
@@ -47,45 +50,14 @@ public class UnpackingHandlerAE2 implements UnpackingHandler {
             }
             return true;
         }
-        // シュミレーションの時の処理
-        /*
-        for(int slot = 0; slot < targetInv.getSlots(); ++slot) {
-            ItemStack itemInSlot = targetInv.getStackInSlot(slot);
-            int itemsAddedToSlot = 0;
-
-            for(int boxSlot = 0; boxSlot < items.size(); ++boxSlot) {
-                ItemStack toInsert = (ItemStack)items.get(boxSlot);
-                if (!toInsert.isEmpty() && targetInv.insertItem(slot, toInsert, true).getCount() != toInsert.getCount()) {
-                    if (itemInSlot.isEmpty()) {
-                        int maxStackSize = targetInv.getSlotLimit(slot);
-                        if (maxStackSize < toInsert.getCount()) {
-                            toInsert.shrink(maxStackSize);
-                            toInsert = ItemHandlerHelper.copyStackWithSize(toInsert, maxStackSize);
-                        } else {
-                            items.set(boxSlot, ItemStack.EMPTY);
-                        }
-
-                        itemInSlot = toInsert;
-                        targetInv.insertItem(slot, toInsert, simulate);
-                    } else if (ItemHandlerHelper.canItemStacksStack(toInsert, itemInSlot)) {
-                        int insertedAmount = toInsert.getCount() - targetInv.insertItem(slot, toInsert, simulate).getCount();
-                        int slotLimit = (int)((targetInv.getStackInSlot(slot).isEmpty() ? (float)itemInSlot.getMaxStackSize() / 64.0F : 1.0F) * (float)targetInv.getSlotLimit(slot));
-                        int insertableAmountWithPreviousItems = Math.min(toInsert.getCount(), slotLimit - itemInSlot.getCount() - itemsAddedToSlot);
-                        int added = Math.min(insertedAmount, Math.max(0, insertableAmountWithPreviousItems));
-                        itemsAddedToSlot += added;
-                        items.set(boxSlot, ItemHandlerHelper.copyStackWithSize(toInsert, toInsert.getCount() - added));
-                    }
-                }
-            }
-        }
-
-
-        for(ItemStack stack : items) {
-            if (!stack.isEmpty()) {
+        //  シュミレーションの時の処理
+        // 入りきらなかったらfalseを返す．
+        for(ItemStack itemStack : items) {
+            long remainder = storage.insert(AEItemKey.of(itemStack), itemStack.getCount(), Actionable.SIMULATE, actionSource);
+            if (remainder != 0) {
                 return false;
             }
         }
-        */
         return true;
     }
 }

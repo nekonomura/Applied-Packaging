@@ -25,6 +25,7 @@ import io.github.nekonomura.applied_packaging.util.Annotations;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -327,7 +328,7 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
         //  ここで返すだけでStockTickerが受け取ってくれる設計になっています)
         return summary;
     }
-
+    @SuppressWarnings("UnstableApiUsage")
     @Override
     public boolean unwrapBox(ItemStack box, boolean simulate) {
         // 動作中だったら開封失敗
@@ -341,7 +342,7 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
         Direction facing = (Direction)this.getBlockState().getOptionalValue(PackagerBlock.FACING).orElse(Direction.UP);
         BlockPos target = this.worldPosition;
         BlockState targetState = this.level.getBlockState(target);
-        UnpackingHandler toUse = new UnpackingHandlerAE2();
+        UnpackingHandler toUse = UnpackingHandlerAE2.INSTANCE;
         boolean unpacked = toUse.unpack(this.level, target, targetState, facing, items, orderContext, simulate);
         if (unpacked && !simulate) {
             this.computerBehaviour.prepareComputerEvent(new PackageEvent(box, "package_received"));
@@ -354,6 +355,13 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
         return unpacked;
     }
 
+    @Override
+    public void read(CompoundTag tag, boolean clientPacket) {
+        super.read(tag, clientPacket);
+        if (this.mainNode != null) {
+            this.mainNode.loadFromNBT(tag);
+        }
+    }
     @Override
     public void initialize() {
         super.initialize();
