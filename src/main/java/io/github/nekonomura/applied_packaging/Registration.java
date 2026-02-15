@@ -4,8 +4,8 @@ import com.simibubi.create.foundation.data.BuilderTransformers;
 import com.simibubi.create.foundation.data.CreateRegistrate;
 import com.tterrag.registrate.util.entry.BlockEntityEntry;
 import com.tterrag.registrate.util.entry.BlockEntry;
-import io.github.nekonomura.applied_packaging.content.MEPackagerBlock;
-import io.github.nekonomura.applied_packaging.content.MEPackagerBlockEntity;
+import io.github.nekonomura.applied_packaging.content.mepackager.MEPackagerBlock;
+import io.github.nekonomura.applied_packaging.content.mepackager.MEPackagerBlockEntity;
 import com.simibubi.create.content.logistics.packager.PackagerRenderer;
 import com.simibubi.create.content.logistics.packager.PackagerVisual;
 

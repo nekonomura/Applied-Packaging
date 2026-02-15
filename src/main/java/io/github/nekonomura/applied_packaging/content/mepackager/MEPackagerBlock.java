@@ -1,4 +1,4 @@
-package io.github.nekonomura.applied_packaging.content;
+package io.github.nekonomura.applied_packaging.content.mepackager;
 
 import appeng.api.parts.IPart;
 import appeng.api.parts.IPartHost;

@@ -1,19 +1,5 @@
-package io.github.nekonomura.applied_packaging.content;
+package io.github.nekonomura.applied_packaging.content.mepackager;
 
-
-import appeng.api.config.Actionable;
-import appeng.api.networking.IGridNode;
-import appeng.api.networking.IManagedGridNode;
-import appeng.api.networking.crafting.ICraftingLink;
-import appeng.api.networking.crafting.ICraftingRequester;
-import appeng.api.stacks.AEKey;
-import appeng.api.storage.MEStorage;
-import appeng.api.upgrades.IUpgradeableObject;
-import appeng.api.util.IConfigManager;
-import appeng.api.util.IConfigurableObject;
-import appeng.helpers.InterfaceLogicHost;
-import com.google.common.collect.ImmutableSet;
-import org.jetbrains.annotations.Nullable;
 
 public class MEPackagerLogic/* implements
         ICraftingRequester,

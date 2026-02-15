@@ -1,4 +1,4 @@
-package io.github.nekonomura.applied_packaging.content;
+package io.github.nekonomura.applied_packaging.content.mepackager;
 
 import appeng.api.config.Actionable;
 import appeng.api.networking.*;
@@ -30,7 +30,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.ItemStackHandler;
 import appeng.api.networking.GridFlags;
@@ -65,6 +64,7 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
     private ItemStack getItem() {
         return Registration.MEPACKAGER.asStack();
     }
+
     @Override
     public @Nullable IGridNode getGridNode(Direction dir) {
         BlockState state = this.getBlockState();
@@ -284,7 +284,7 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
         }
     }
 
-    @Annotations.AICode(checked = false)
+    @Annotations.AICode(checked = true)
     @Override
     public InventorySummary getAvailableItems() {
         // 1. ノードとグリッドの安全性チェック
@@ -342,6 +342,7 @@ public class MEPackagerBlockEntity extends PackagerBlockEntity
         BlockState targetState = this.level.getBlockState(target);
         UnpackingHandler toUse = UnpackingHandlerAE2.INSTANCE;
         boolean unpacked = toUse.unpack(this.level, target, targetState, facing, items, orderContext, simulate);
+        // アニメーション
         if (unpacked && !simulate) {
             this.computerBehaviour.prepareComputerEvent(new PackageEvent(box, "package_received"));
             this.previouslyUnwrapped = box;
