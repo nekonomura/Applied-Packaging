@@ -29,7 +29,7 @@ public class MEPackagerBlock extends PackagerBlock{
     }
 
     public BlockEntityType<? extends PackagerBlockEntity> getBlockEntityType() {
-        return (BlockEntityType) Registration.MEPACKAGER_BLOCK_ENTITY.get();
+        return Registration.MEPACKAGER_BLOCK_ENTITY.get();
     }
 
     @Override
