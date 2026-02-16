@@ -9,9 +9,12 @@ import io.github.nekonomura.applied_packaging.Registration;
 import net.minecraft.core.Direction;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.items.IItemHandler;
@@ -22,10 +25,9 @@ public class MEPackagerBlock extends PackagerBlock{
         super(properties);
         BlockState defaultBlockState = this.defaultBlockState();
         if (defaultBlockState.hasProperty(LINKED)) {
-            defaultBlockState = (BlockState)defaultBlockState.setValue(LINKED, false);
+            defaultBlockState = defaultBlockState.setValue(LINKED, false);
         }
-
-        this.registerDefaultState((BlockState)defaultBlockState.setValue(POWERED, false));
+        this.registerDefaultState(defaultBlockState);
     }
 
     public BlockEntityType<? extends PackagerBlockEntity> getBlockEntityType() {
@@ -56,6 +58,11 @@ public class MEPackagerBlock extends PackagerBlock{
             preferredFacing = player != null && player.isShiftKeyDown() ? facing : facing.getOpposite();
         }
 
-        return (BlockState)((BlockState)super.getStateForPlacement(context).setValue(POWERED, context.getLevel().hasNeighborSignal(context.getClickedPos()))).setValue(FACING, preferredFacing);
+        return super.getStateForPlacement(context).setValue(FACING, preferredFacing);
+    }
+
+    @Override
+    protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
+        super.createBlockStateDefinition(builder.add(new Property[]{LINKED}));
     }
 }
